@@ -86,8 +86,8 @@
     #close:hover svg { transform: rotate(90deg); }
     #close svg, #reset svg, #min svg { transition: transform .35s cubic-bezier(.2,.9,.25,1.3); }
     #reset.spin svg { transform: rotate(-360deg); }
-    #min svg { transform: rotate(180deg); }
-    .panel.minimized #min svg { transform: rotate(0deg); }
+    #min svg { transform: rotate(0deg); }
+    .panel.minimized #min svg { transform: rotate(180deg); }
 
     /* Minimizar: colapsa todo menos la cabecera, sin cerrar la conversacion */
     .body { display: flex; flex-direction: column; flex: 1; min-height: 0;
