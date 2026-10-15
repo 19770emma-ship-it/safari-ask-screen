@@ -355,7 +355,7 @@
   }
 
   const nextFrames = () =>
-    new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 60))));
+    new Promise((r) => requestAnimationFrame(() => setTimeout(r, 20)));
 
   async function send() {
     if (busy) return;
@@ -364,23 +364,25 @@
     if (!q) return;
     busy = true;
     panel.classList.add("busy");
-    ta.value = ""; ta._sync();
-    addMsg("user", q);
-    const thinking = addTyping();
-    setStatus("Leyendo la pantalla\u2026");
-
     let failed = false;
+    let thinking = null;
     try {
+      // La captura va PRIMERO (con el panel oculto el menor tiempo posible) y
+      // solo despues se muestran el mensaje y los puntos, para que no haya un
+      // parpadeo con el chat a medias.
       let screenshot = null;
       if ($("shot").checked) {
-        // Ocultamos el panel un instante para que no salga en la captura
         host.style.visibility = "hidden";
         await nextFrames();
-        const cap = await api.runtime.sendMessage({ type: "capture" });
-        host.style.visibility = "visible";
+        let cap;
+        try { cap = await api.runtime.sendMessage({ type: "capture" }); }
+        finally { host.style.visibility = "visible"; }
         if (cap?.error) throw new Error(cap.error);
         screenshot = cap?.dataUrl || null;
       }
+      ta.value = ""; ta._sync();
+      addMsg("user", q);
+      thinking = addTyping();
       setStatus("Pensando\u2026");
 
       const res = await api.runtime.sendMessage({
@@ -398,6 +400,7 @@
     } catch (e) {
       failed = true;
       host.style.visibility = "visible";
+      if (!thinking) { addMsg("user", q); ta.value = ""; ta._sync(); thinking = addTyping(); }
       thinking.classList.remove("typing");
       thinking.className = "msg err";
       thinking.textContent = "Error: " + (e?.message || e);
