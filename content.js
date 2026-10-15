@@ -23,6 +23,7 @@
       '<svg viewBox="0 0 24 24"><path d="M4 9a2.5 2.5 0 0 1 2.5-2.5h1.1l1-1.5h6.8l1 1.5h1.1A2.5 2.5 0 0 1 20 9v7.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.8" r="3.2"/></svg>',
     spark:
       '<svg viewBox="0 0 24 24"><path d="M11 3.5l1.7 4.8 4.8 1.7-4.8 1.7L11 16.5l-1.7-4.8L4.5 10l4.8-1.7z"/><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z"/></svg>',
+    minimize: '<svg viewBox="0 0 24 24"><path d="M6 10l6 6 6-6"/></svg>',
   };
 
   const css = `
@@ -80,8 +81,17 @@
     .icon-btn:hover { background: var(--field); color: var(--fg); }
     .icon-btn:active { transform: scale(.86); }
     #close:hover svg { transform: rotate(90deg); }
-    #close svg, #reset svg { transition: transform .35s cubic-bezier(.2,.9,.25,1.3); }
+    #close svg, #reset svg, #min svg { transition: transform .35s cubic-bezier(.2,.9,.25,1.3); }
     #reset.spin svg { transform: rotate(-360deg); }
+    #min svg { transform: rotate(180deg); }
+    .panel.minimized #min svg { transform: rotate(0deg); }
+
+    /* Minimizar: colapsa todo menos la cabecera, sin cerrar la conversacion */
+    .body { display: flex; flex-direction: column; flex: 1; min-height: 0;
+      max-height: 600px; opacity: 1; transition: max-height .32s cubic-bezier(.2,.9,.25,1), opacity .22s ease; }
+    .panel.minimized { height: auto !important; }
+    .panel.minimized .body { max-height: 0; opacity: 0; pointer-events: none; }
+    .panel.minimized header { cursor: pointer; }
 
     /* Mensajes */
     .msgs { flex: 1; overflow-y: auto; padding: 6px 14px 12px; display: flex; flex-direction: column; gap: 8px; scroll-behavior: smooth; overscroll-behavior: contain; }
@@ -179,20 +189,23 @@
           <div class="orb">${ICONS.spark}</div>
           <div class="titles"><div class="title">Preg\u00fantale a mi pantalla</div><div class="status" id="status">Lista para leer esta p\u00e1gina</div></div>
           <button class="icon-btn" id="reset" title="Nueva conversaci\u00f3n" aria-label="Nueva conversaci\u00f3n">${ICONS.reset}</button>
+          <button class="icon-btn" id="min" title="Minimizar" aria-label="Minimizar">${ICONS.minimize}</button>
           <button class="icon-btn" id="close" title="Cerrar (Esc)" aria-label="Cerrar">${ICONS.close}</button>
         </header>
-        <div class="msgs" id="msgs"></div>
-        <footer>
-          <label class="toggle" title="Env\u00eda tambi\u00e9n una imagen de lo que ves">
-            <input type="checkbox" id="shot" checked>
-            <span class="track"><span class="thumb"></span></span>
-            <span class="cam">${ICONS.camera}</span><span>Incluir captura</span>
-          </label>
-          <div class="composer">
-            <textarea id="q" rows="1" placeholder="Pregunta sobre esta p\u00e1gina\u2026"></textarea>
-            <button class="send" id="send" aria-label="Enviar" disabled>${ICONS.send}</button>
-          </div>
-        </footer>
+        <div class="body" id="body">
+          <div class="msgs" id="msgs"></div>
+          <footer>
+            <label class="toggle" title="Env\u00eda tambi\u00e9n una imagen de lo que ves">
+              <input type="checkbox" id="shot" checked>
+              <span class="track"><span class="thumb"></span></span>
+              <span class="cam">${ICONS.camera}</span><span>Incluir captura</span>
+            </label>
+            <div class="composer">
+              <textarea id="q" rows="1" placeholder="Pregunta sobre esta p\u00e1gina\u2026"></textarea>
+              <button class="send" id="send" aria-label="Enviar" disabled>${ICONS.send}</button>
+            </div>
+          </footer>
+        </div>
       </div>`;
     const $ = (id) => root.getElementById(id);
     panel = root.querySelector(".panel");
@@ -200,12 +213,16 @@
     // Que los atajos del sitio no interfieran mientras escribes en el panel; Esc cierra
     ["keydown", "keyup", "keypress"].forEach((t) =>
       root.addEventListener(t, (e) => {
-        if (t === "keydown" && e.key === "Escape") hide();
+        if (t === "keydown" && e.key === "Escape") {
+          if (panel.classList.contains("minimized")) setMinimized(false); else hide();
+        }
         e.stopPropagation();
       })
     );
 
     $("close").onclick = hide;
+    $("min").onclick = (e) => { e.stopPropagation(); setMinimized(!panel.classList.contains("minimized")); };
+    $("drag").addEventListener("click", () => { if (panel.classList.contains("minimized")) setMinimized(false); });
     $("reset").onclick = () => {
       const b = $("reset");
       b.classList.remove("spin"); void b.offsetWidth; b.classList.add("spin");
@@ -230,9 +247,17 @@
     document.documentElement.appendChild(host);
   }
 
+  function setMinimized(on) {
+    panel.classList.toggle("minimized", on);
+    $("min").title = on ? "Restaurar" : "Minimizar";
+    $("min").setAttribute("aria-label", on ? "Restaurar" : "Minimizar");
+    if (!on) $("q").focus();
+  }
+
   function enableDrag(handle) {
     handle.addEventListener("pointerdown", (e) => {
       if (e.target.closest("button")) return;
+      if (panel.classList.contains("minimized")) return; // clic en cabecera minimizada = expandir, no arrastrar
       const r = panel.getBoundingClientRect();
       const dx = e.clientX - r.left, dy = e.clientY - r.top;
       panel.style.right = "auto"; panel.style.bottom = "auto";
@@ -335,6 +360,7 @@
     clearTimeout(closeTimer);
     host.style.display = "";
     panel.classList.remove("closing");
+    if (panel.classList.contains("minimized")) setMinimized(false);
     $("q").focus();
   }
   function hide() {
