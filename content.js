@@ -1,4 +1,4 @@
-// Content script: panel flotante (Shadow DOM, aislado de los estilos de la página).
+// Content script: panel flotante estilo vidrio (Shadow DOM, aislado de los estilos de la pagina).
 (() => {
   if (window.top !== window) return; // solo en el frame principal
   if (window.__askScreenLoaded) return;
@@ -10,41 +10,153 @@
 
   let host = null;
   let root = null;
+  let panel = null;
   let history = []; // {role, text}
   let busy = false;
+  let closeTimer = null;
+
+  const ICONS = {
+    close: '<svg viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>',
+    reset: '<svg viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.4-5.5"/><path d="M4.5 4.5v4h4"/></svg>',
+    send: '<svg viewBox="0 0 24 24"><path d="M12 18.5V6M6.8 11.2L12 6l5.2 5.2"/></svg>',
+    camera:
+      '<svg viewBox="0 0 24 24"><path d="M4 9a2.5 2.5 0 0 1 2.5-2.5h1.1l1-1.5h6.8l1 1.5h1.1A2.5 2.5 0 0 1 20 9v7.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.8" r="3.2"/></svg>',
+    spark:
+      '<svg viewBox="0 0 24 24"><path d="M11 3.5l1.7 4.8 4.8 1.7-4.8 1.7L11 16.5l-1.7-4.8L4.5 10l4.8-1.7z"/><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z"/></svg>',
+  };
 
   const css = `
     :host { all: initial; }
-    .panel { position: fixed; right: 16px; bottom: 16px; width: 380px; height: 520px;
-      max-height: calc(100vh - 32px); display: flex; flex-direction: column;
-      background: #fff; color: #1f1f1f; border: 1px solid #d0d0d0; border-radius: 14px;
-      box-shadow: 0 10px 40px rgba(0,0,0,.28); font: 14px/1.45 -apple-system, system-ui, sans-serif;
-      z-index: 2147483647; overflow: hidden; }
-    header { border-color: #3a3a3c; } footer { border-color: #3a3a3c; }
+    * { box-sizing: border-box; }
+
+    .panel {
+      --bg: rgba(248, 248, 250, 0.78);
+      --fg: #1d1d1f;
+      --muted: rgba(60, 60, 67, 0.62);
+      --line: rgba(60, 60, 67, 0.16);
+      --field: rgba(120, 120, 128, 0.12);
+      --bot: rgba(120, 120, 128, 0.14);
+      --accent: #0a84ff;
+      --accent2: #0066d6;
+      --err-bg: rgba(255, 59, 48, 0.14);
+      --err-fg: #c4271c;
+      position: fixed; right: 20px; bottom: 20px;
+      width: 392px; height: 560px;
+      max-width: calc(100vw - 24px); max-height: calc(100vh - 24px);
+      display: flex; flex-direction: column; overflow: hidden;
+      color: var(--fg); background: var(--bg);
+      -webkit-backdrop-filter: blur(30px) saturate(180%);
+      backdrop-filter: blur(30px) saturate(180%);
+      border: 0.5px solid var(--line); border-radius: 22px;
+      box-shadow: 0 28px 70px rgba(0,0,0,.30), 0 3px 10px rgba(0,0,0,.12), inset 0 0.5px 0 rgba(255,255,255,.55);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      z-index: 2147483647;
+      transform-origin: bottom right;
+      animation: pop-in .45s cubic-bezier(.2, .9, .25, 1.12) both;
     }
-    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #e5e5e5; }
-    header strong { flex: 1; font-size: 14px; }
-    button { font: inherit; cursor: pointer; border: 0; border-radius: 8px; padding: 6px 10px; }
-    .ghost { background: transparent; color: inherit; opacity: .7; } .ghost:hover { opacity: 1; }
-    .msgs { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
-    .msg { padding: 8px 11px; border-radius: 12px; max-width: 92%; white-space: pre-wrap; word-wrap: break-word; user-select: text; }
-    .msg.user { align-self: flex-end; background: #d97757; color: #fff; }
-    .msg.bot { align-self: flex-start; background: #f1f1f1; color: #1f1f1f; }
-    .msg.err { align-self: flex-start; background: #fde7e7; color: #8a1c1c; }
-    .hint { opacity: .6; font-size: 13px; text-align: center; margin: auto 8px; }
-    footer { border-top: 1px solid #e5e5e5; padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px; }
-    label { font-size: 12px; opacity: .8; display: flex; align-items: center; gap: 6px; }
-    .row { display: flex; gap: 6px; align-items: flex-end; }
-    textarea { flex: 1; resize: none; height: 54px; padding: 8px; border: 1px solid #ccc; border-radius: 8px; font: inherit; }
-    .send { background: #d97757; color: #fff; height: 36px; } .send:disabled { opacity: .5; cursor: default; }
+    .panel.closing { animation: pop-out .22s cubic-bezier(.4, 0, 1, 1) both; }
+    @keyframes pop-in  { from { opacity: 0; transform: translateY(20px) scale(.94); } to { opacity: 1; transform: none; } }
+    @keyframes pop-out { to { opacity: 0; transform: translateY(12px) scale(.96); } }
+
+    svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; display: block; }
+
+    /* Cabecera */
+    header { display: flex; align-items: center; gap: 10px; padding: 12px 12px 10px 14px; cursor: grab; user-select: none; touch-action: none; }
+    header:active { cursor: grabbing; }
+    .orb { width: 32px; height: 32px; border-radius: 50%; flex: none; display: grid; place-items: center; color: #fff;
+      background: linear-gradient(135deg, #64d2ff, #0a84ff 55%, #5e5ce6); box-shadow: 0 4px 12px rgba(10,132,255,.4); transition: transform .4s cubic-bezier(.2,.9,.25,1.3); }
+    .orb svg { width: 17px; height: 17px; stroke-width: 1.7; }
+    .panel.busy .orb { animation: orb-pulse 1.4s ease-in-out infinite; }
+    .panel.busy .orb svg { animation: spin-slow 3s linear infinite; }
+    @keyframes orb-pulse { 0%,100% { transform: scale(1); box-shadow: 0 4px 12px rgba(10,132,255,.4); } 50% { transform: scale(1.1); box-shadow: 0 6px 20px rgba(94,92,230,.6); } }
+    @keyframes spin-slow { to { transform: rotate(360deg); } }
+    .titles { flex: 1; min-width: 0; }
+    .title { font-weight: 600; font-size: 14px; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status { font-size: 12px; color: var(--muted); transition: opacity .2s; }
+
+    .icon-btn { width: 30px; height: 30px; border-radius: 50%; border: 0; padding: 0; cursor: pointer; display: grid; place-items: center;
+      color: var(--muted); background: transparent; transition: background .2s, color .2s, transform .25s cubic-bezier(.2,.9,.25,1.4); }
+    .icon-btn:hover { background: var(--field); color: var(--fg); }
+    .icon-btn:active { transform: scale(.86); }
+    #close:hover svg { transform: rotate(90deg); }
+    #close svg, #reset svg { transition: transform .35s cubic-bezier(.2,.9,.25,1.3); }
+    #reset.spin svg { transform: rotate(-360deg); }
+
+    /* Mensajes */
+    .msgs { flex: 1; overflow-y: auto; padding: 6px 14px 12px; display: flex; flex-direction: column; gap: 8px; scroll-behavior: smooth; overscroll-behavior: contain; }
+    .msgs::-webkit-scrollbar { width: 8px; } .msgs::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+    .msg { max-width: 88%; padding: 9px 13px; border-radius: 18px; word-wrap: break-word; user-select: text; animation: msg-in .42s cubic-bezier(.2, .9, .25, 1.15) both; }
+    @keyframes msg-in { from { opacity: 0; transform: translateY(12px) scale(.95); } to { opacity: 1; transform: none; } }
+    .msg.user { align-self: flex-end; color: #fff; border-bottom-right-radius: 6px; background: linear-gradient(180deg, var(--accent), var(--accent2)); white-space: pre-wrap; transform-origin: bottom right; }
+    .msg.bot { align-self: flex-start; background: var(--bot); border-bottom-left-radius: 6px; transform-origin: bottom left; }
+    .msg.err { align-self: flex-start; background: var(--err-bg); color: var(--err-fg); border-bottom-left-radius: 6px; white-space: pre-wrap; }
+    .msg.bot p { margin: 0 0 6px; } .msg.bot p:last-child, .msg.bot ul:last-child, .msg.bot ol:last-child { margin-bottom: 0; }
+    .msg.bot ul, .msg.bot ol { margin: 0 0 6px; padding-left: 20px; } .msg.bot li { margin: 2px 0; }
+    .msg.bot code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(120,120,128,.2); padding: 1px 5px; border-radius: 6px; }
+    .msg.bot pre { margin: 4px 0 6px; padding: 9px 11px; background: rgba(120,120,128,.18); border-radius: 12px; overflow-x: auto; }
+    .msg.bot pre code { background: none; padding: 0; }
+
+    .typing { display: flex; gap: 5px; align-items: center; padding: 13px 15px; }
+    .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: bounce 1.2s ease-in-out infinite; }
+    .typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+    @keyframes bounce { 0%,60%,100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-5px); opacity: 1; } }
+
+    /* Estado vacio */
+    .empty { margin: auto; text-align: center; padding: 0 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; animation: msg-in .6s cubic-bezier(.2,.9,.25,1.15) both; }
+    .empty .big { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; color: #fff; margin-bottom: 4px;
+      background: linear-gradient(135deg, #64d2ff, #0a84ff 55%, #5e5ce6); box-shadow: 0 10px 26px rgba(10,132,255,.4); animation: float 3.4s ease-in-out infinite; }
+    .empty .big svg { width: 26px; height: 26px; stroke-width: 1.6; }
+    @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+    .empty h3 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.02em; }
+    .empty p { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+    .chips { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+    .chip { border: 0; cursor: pointer; font: inherit; font-size: 13px; color: var(--fg); background: var(--field); padding: 9px 12px; border-radius: 14px; text-align: left;
+      transition: transform .25s cubic-bezier(.2,.9,.25,1.4), background .2s; }
+    .chip:hover { background: rgba(10,132,255,.16); transform: translateX(3px); }
+    .chip:active { transform: scale(.97); }
+
+    /* Pie */
+    footer { padding: 6px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .toggle { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; cursor: pointer; font-size: 12px; color: var(--muted); user-select: none; }
+    .toggle input { position: absolute; opacity: 0; pointer-events: none; }
+    .track { width: 34px; height: 20px; border-radius: 12px; background: rgba(120,120,128,.32); position: relative; transition: background .3s; flex: none; }
+    .thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3); transition: transform .35s cubic-bezier(.2,.9,.25,1.3), width .2s; }
+    .toggle:active .thumb { width: 20px; }
+    .toggle input:checked + .track { background: #34c759; }
+    .toggle input:checked + .track .thumb { transform: translateX(14px); }
+    .toggle:active input:checked + .track .thumb { transform: translateX(10px); }
+    .toggle .cam svg { width: 15px; height: 15px; }
+    .toggle input:checked ~ .cam { color: var(--accent); }
+    .toggle .cam, .toggle span { transition: color .25s; }
+
+    .composer { display: flex; align-items: flex-end; gap: 6px; padding: 5px 5px 5px 14px; border-radius: 22px; background: var(--field); border: 0.5px solid transparent; transition: border-color .25s, box-shadow .25s, background .25s; }
+    .composer:focus-within { border-color: rgba(10,132,255,.55); box-shadow: 0 0 0 4px rgba(10,132,255,.16); background: transparent; }
+    textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; padding: 6px 0; height: 32px; max-height: 120px; line-height: 20px; }
+    textarea::placeholder { color: var(--muted); }
+    .send { width: 32px; height: 32px; border-radius: 50%; border: 0; padding: 0; cursor: pointer; display: grid; place-items: center; flex: none; color: #fff;
+      background: var(--accent); transform: scale(1); transition: transform .3s cubic-bezier(.2,.9,.25,1.5), opacity .25s, background .25s; }
+    .send svg { width: 17px; height: 17px; stroke-width: 2.2; transition: transform .3s cubic-bezier(.2,.9,.25,1.4); }
+    .send:hover:not(:disabled) svg { transform: translateY(-2px); }
+    .send:active:not(:disabled) { transform: scale(.88); }
+    .send:disabled { opacity: .35; transform: scale(.88); cursor: default; background: rgba(120,120,128,.6); }
+
     @media (prefers-color-scheme: dark) {
-      .panel { background: #1e1e20; color: #ececec; border-color: #3a3a3c; }
-      .msg.bot { background: #2c2c2e; color: #ececec; }
-      .msg.err { background: #4a1f1f; color: #ffb4b4; }
-      textarea { background: #2c2c2e; color: #ececec; border-color: #48484a; }
-      header, footer { border-color: #3a3a3c; }
+      .panel { --bg: rgba(30, 30, 32, 0.76); --fg: #f5f5f7; --muted: rgba(235, 235, 245, 0.6); --line: rgba(255,255,255,.14);
+        --field: rgba(120, 120, 128, 0.24); --bot: rgba(120, 120, 128, 0.26); --err-bg: rgba(255, 69, 58, 0.22); --err-fg: #ff9a92;
+        box-shadow: 0 28px 70px rgba(0,0,0,.6), 0 3px 10px rgba(0,0,0,.4), inset 0 0.5px 0 rgba(255,255,255,.12); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
     }
   `;
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
 
   function build() {
     host = document.createElement("div");
@@ -52,61 +164,175 @@
     root = host.attachShadow({ mode: "closed" });
     root.innerHTML = `
       <style>${css}</style>
-      <div class="panel" role="dialog" aria-label="Pregúntale a mi pantalla">
-        <header>
-          <strong>Pregúntale a mi pantalla</strong>
-          <button class="ghost" id="clear" title="Nueva conversación">Limpiar</button>
-          <button class="ghost" id="close" title="Cerrar (Opción+Shift+A)">✕</button>
+      <div class="panel" role="dialog" aria-label="Preg\u00fantale a mi pantalla">
+        <header id="drag">
+          <div class="orb">${ICONS.spark}</div>
+          <div class="titles"><div class="title">Preg\u00fantale a mi pantalla</div><div class="status" id="status">Lista para leer esta p\u00e1gina</div></div>
+          <button class="icon-btn" id="reset" title="Nueva conversaci\u00f3n" aria-label="Nueva conversaci\u00f3n">${ICONS.reset}</button>
+          <button class="icon-btn" id="close" title="Cerrar (Esc)" aria-label="Cerrar">${ICONS.close}</button>
         </header>
-        <div class="msgs" id="msgs"><div class="hint" id="hint">Pregunta lo que quieras sobre esta página.<br>Opción+Shift+A abre/cierra el panel.</div></div>
+        <div class="msgs" id="msgs"></div>
         <footer>
-          <label><input type="checkbox" id="shot" checked> Incluir captura de la pestaña</label>
-          <div class="row">
-            <textarea id="q" placeholder="Escribe tu duda… (Enter envía, Shift+Enter salto de línea)"></textarea>
-            <button class="send" id="send">Enviar</button>
+          <label class="toggle" title="Env\u00eda tambi\u00e9n una imagen de lo que ves">
+            <input type="checkbox" id="shot" checked>
+            <span class="track"><span class="thumb"></span></span>
+            <span class="cam">${ICONS.camera}</span><span>Incluir captura</span>
+          </label>
+          <div class="composer">
+            <textarea id="q" rows="1" placeholder="Pregunta sobre esta p\u00e1gina\u2026"></textarea>
+            <button class="send" id="send" aria-label="Enviar" disabled>${ICONS.send}</button>
           </div>
         </footer>
       </div>`;
     const $ = (id) => root.getElementById(id);
+    panel = root.querySelector(".panel");
 
-    // Que los atajos del sitio no interfieran mientras escribes en el panel
+    // Que los atajos del sitio no interfieran mientras escribes en el panel; Esc cierra
     ["keydown", "keyup", "keypress"].forEach((t) =>
-      root.addEventListener(t, (e) => e.stopPropagation())
+      root.addEventListener(t, (e) => {
+        if (t === "keydown" && e.key === "Escape") hide();
+        e.stopPropagation();
+      })
     );
 
     $("close").onclick = hide;
-    $("clear").onclick = () => { history = []; $("msgs").innerHTML = ""; $("msgs").append(hintEl()); };
+    $("reset").onclick = () => {
+      const b = $("reset");
+      b.classList.remove("spin"); void b.offsetWidth; b.classList.add("spin");
+      history = [];
+      renderEmpty();
+    };
     $("send").onclick = send;
-    $("q").addEventListener("keydown", (e) => {
+    const ta = $("q");
+    const sync = () => {
+      ta.style.height = "auto";
+      ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+      $("send").disabled = busy || !ta.value.trim();
+    };
+    ta.addEventListener("input", sync);
+    ta.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
     });
+    ta._sync = sync;
+
+    enableDrag($("drag"));
+    renderEmpty();
     document.documentElement.appendChild(host);
   }
 
-  const hintEl = () => {
-    const d = document.createElement("div");
-    d.className = "hint"; d.id = "hint";
-    d.innerHTML = "Pregunta lo que quieras sobre esta página.<br>Opción+Shift+A abre/cierra el panel.";
-    return d;
-  };
+  function enableDrag(handle) {
+    handle.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button")) return;
+      const r = panel.getBoundingClientRect();
+      const dx = e.clientX - r.left, dy = e.clientY - r.top;
+      panel.style.right = "auto"; panel.style.bottom = "auto";
+      panel.style.left = r.left + "px"; panel.style.top = r.top + "px";
+      handle.setPointerCapture(e.pointerId);
+      const move = (ev) => {
+        const x = Math.min(Math.max(8, ev.clientX - dx), window.innerWidth - r.width - 8);
+        const y = Math.min(Math.max(8, ev.clientY - dy), window.innerHeight - r.height - 8);
+        panel.style.left = x + "px"; panel.style.top = y + "px";
+      };
+      const up = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); };
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", up);
+    });
+  }
 
   const $ = (id) => root.getElementById(id);
 
-  function addMsg(kind, text) {
-    const hint = root.getElementById("hint");
-    if (hint) hint.remove();
-    const m = document.createElement("div");
-    m.className = "msg " + kind;
-    m.textContent = text; // textContent: nunca interpretamos HTML de la IA
+  function setStatus(t) { $("status").textContent = t; }
+
+  function renderEmpty() {
     const box = $("msgs");
-    box.appendChild(m);
+    box.textContent = "";
+    const wrap = el("div", "empty");
+    const big = el("div", "big"); big.innerHTML = ICONS.spark;
+    wrap.append(big, el("h3", null, "\u00bfQu\u00e9 quieres saber?"), el("p", null, "Leo esta p\u00e1gina y te respondo."));
+    const chips = el("div", "chips");
+    ["Resume esta p\u00e1gina", "\u00bfQu\u00e9 es lo m\u00e1s importante aqu\u00ed?", "Expl\u00edcame lo que estoy viendo"].forEach((t) => {
+      const b = el("button", "chip", t);
+      b.onclick = () => { $("q").value = t; $("q")._sync(); send(); };
+      chips.append(b);
+    });
+    wrap.append(chips);
+    box.append(wrap);
+    setStatus("Lista para leer esta p\u00e1gina");
+  }
+
+  // Mini-markdown seguro: se construye con nodos DOM, nunca con innerHTML.
+  function inline(parent, text) {
+    text.split(/(\*\*[^*]+\*\*|\*[^*\s][^*]*\*|`[^`]+`)/).forEach((part) => {
+      if (!part) return;
+      if (part.startsWith("**") && part.endsWith("**") && part.length > 4) parent.append(el("strong", null, part.slice(2, -2)));
+      else if (part.startsWith("`") && part.endsWith("`") && part.length > 2) parent.append(el("code", null, part.slice(1, -1)));
+      else if (part.startsWith("*") && part.endsWith("*") && part.length > 2) parent.append(el("em", null, part.slice(1, -1)));
+      else parent.append(document.createTextNode(part));
+    });
+  }
+
+  function renderMarkdown(target, text) {
+    target.textContent = "";
+    let list = null, code = null;
+    for (const line of text.replace(/\r/g, "").split("\n")) {
+      if (line.trim().startsWith("```")) {
+        if (code) { code = null; } else { const pre = el("pre"); code = el("code"); pre.append(code); target.append(pre); list = null; }
+        continue;
+      }
+      if (code) { code.textContent += (code.textContent ? "\n" : "") + line; continue; }
+      const ul = /^\s*[*\-\u2022]\s+(.*)$/.exec(line);
+      const ol = /^\s*(\d+)[.)]\s+(.*)$/.exec(line);
+      if (ul || ol) {
+        const kind = ul ? "ul" : "ol";
+        if (!list || list.tagName.toLowerCase() !== kind) { list = el(kind); target.append(list); }
+        const li = el("li"); inline(li, ul ? ul[1] : ol[2]); list.append(li);
+        continue;
+      }
+      list = null;
+      if (!line.trim()) continue;
+      const h = /^#{1,6}\s+(.*)$/.exec(line);
+      const p = el("p");
+      if (h) { const s = el("strong"); inline(s, h[1]); p.append(s); } else inline(p, line);
+      target.append(p);
+    }
+  }
+
+  function addMsg(kind, text) {
+    const box = $("msgs");
+    const empty = box.querySelector(".empty");
+    if (empty) empty.remove();
+    const m = el("div", "msg " + kind);
+    if (kind === "bot") renderMarkdown(m, text); else m.textContent = text;
+    box.append(m);
     box.scrollTop = box.scrollHeight;
     return m;
   }
 
-  function show() { if (!host) build(); host.style.display = ""; $("q").focus(); }
-  function hide() { if (host) host.style.display = "none"; }
-  function toggle() { (!host || host.style.display === "none") ? show() : hide(); }
+  function addTyping() {
+    const empty = $("msgs").querySelector(".empty");
+    if (empty) empty.remove();
+    const m = el("div", "msg bot typing");
+    m.append(el("i"), el("i"), el("i"));
+    $("msgs").append(m);
+    $("msgs").scrollTop = $("msgs").scrollHeight;
+    return m;
+  }
+
+  function isOpen() { return host && host.style.display !== "none" && !panel.classList.contains("closing"); }
+
+  function show() {
+    if (!host) build();
+    clearTimeout(closeTimer);
+    host.style.display = "";
+    panel.classList.remove("closing");
+    $("q").focus();
+  }
+  function hide() {
+    if (!host || !isOpen()) return;
+    panel.classList.add("closing");
+    closeTimer = setTimeout(() => { host.style.display = "none"; panel.classList.remove("closing"); }, 220);
+  }
+  function toggle() { isOpen() ? hide() : show(); }
 
   function readPage() {
     return {
@@ -122,14 +348,17 @@
 
   async function send() {
     if (busy) return;
-    const q = $("q").value.trim();
+    const ta = $("q");
+    const q = ta.value.trim();
     if (!q) return;
     busy = true;
-    $("send").disabled = true;
-    $("q").value = "";
+    panel.classList.add("busy");
+    ta.value = ""; ta._sync();
     addMsg("user", q);
-    const thinking = addMsg("bot", "Leyendo la pantalla…");
+    const thinking = addTyping();
+    setStatus("Leyendo la pantalla\u2026");
 
+    let failed = false;
     try {
       let screenshot = null;
       if ($("shot").checked) {
@@ -141,7 +370,7 @@
         if (cap?.error) throw new Error(cap.error);
         screenshot = cap?.dataUrl || null;
       }
-      thinking.textContent = "Pensando…";
+      setStatus("Pensando\u2026");
 
       const res = await api.runtime.sendMessage({
         type: "ask",
@@ -150,25 +379,30 @@
         page: readPage(),
         screenshot,
       });
-      if (!res || res.error) throw new Error(res?.error || "Sin respuesta de la extensión.");
+      if (!res || res.error) throw new Error(res?.error || "Sin respuesta de la extensi\u00f3n.");
 
-      thinking.textContent = res.text;
+      thinking.classList.remove("typing");
+      renderMarkdown(thinking, res.text);
       history.push({ role: "user", text: q }, { role: "assistant", text: res.text });
     } catch (e) {
+      failed = true;
       host.style.visibility = "visible";
+      thinking.classList.remove("typing");
       thinking.className = "msg err";
       thinking.textContent = "Error: " + (e?.message || e);
     } finally {
       busy = false;
-      $("send").disabled = false;
-      $("q").focus();
+      panel.classList.remove("busy");
+      setStatus(failed ? "Algo sali\u00f3 mal. Int\u00e9ntalo de nuevo." : "Lista");
+      ta._sync();
+      ta.focus();
       $("msgs").scrollTop = $("msgs").scrollHeight;
     }
   }
 
   api.runtime.onMessage.addListener((msg) => { if (msg?.type === "toggle") toggle(); });
 
-  // Atajo: Opción+Shift+A
+  // Atajo: Opcion+Shift+A
   window.addEventListener("keydown", (e) => {
     if (e.altKey && e.shiftKey && e.code === "KeyA") { e.preventDefault(); toggle(); }
   }, true);

@@ -14,6 +14,6 @@ $("save").addEventListener("click", async () => {
     model: $("model").value.trim() || DEFAULTS.model,
     blocked: $("blocked").value,
   });
-  $("status").textContent = "Guardado ✓";
+  $("status").textContent = "Guardado \u2713";
   setTimeout(() => ($("status").textContent = ""), 2000);
 });
