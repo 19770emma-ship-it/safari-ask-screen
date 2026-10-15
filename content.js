@@ -1,11 +1,14 @@
 // Content script: panel flotante estilo vidrio (Shadow DOM, aislado de los estilos de la pagina).
 (() => {
   if (window.top !== window) return; // solo en el frame principal
-  if (window.__askScreenLoaded) return;
-  window.__askScreenLoaded = true;
+  if (window.__x7f3q9) return; // bandera interna para no inyectarse dos veces
+  window.__x7f3q9 = true;
 
   const api = globalThis.browser ?? globalThis.chrome;
   const MAX_PAGE_CHARS = 60000;
+  // Id aleatorio por carga de pagina: evita que un selector fijo en el DOM
+  // identifique a simple vista que esta extension (y no otra) esta activa.
+  const HOST_ID = "x-" + Math.random().toString(36).slice(2, 10);
   const MAX_HISTORY = 12; // mensajes previos enviados como contexto
 
   let host = null;
@@ -180,7 +183,7 @@
 
   function build() {
     host = document.createElement("div");
-    host.id = "ask-screen-host";
+    host.id = HOST_ID;
     root = host.attachShadow({ mode: "closed" });
     root.innerHTML = `
       <style>${css}</style>
