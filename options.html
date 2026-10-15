@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Opciones – Pregúntale a mi pantalla</title>
+<style>
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; max-width: 560px; margin: 32px auto; padding: 0 16px; }
+  label { display: block; font-weight: 600; margin-top: 18px; }
+  small { display: block; font-weight: 400; opacity: .7; margin: 2px 0 6px; }
+  input, textarea { width: 100%; box-sizing: border-box; padding: 8px; font: inherit; border: 1px solid #bbb; border-radius: 8px; }
+  textarea { height: 90px; }
+  button { margin-top: 20px; padding: 9px 18px; font: inherit; border: 0; border-radius: 8px; background: #d97757; color: #fff; cursor: pointer; }
+  #status { margin-left: 12px; opacity: .8; }
+  @media (prefers-color-scheme: dark) { body { background: #1e1e20; color: #ececec; } input, textarea { background: #2c2c2e; color: #ececec; border-color: #48484a; } }
+</style>
+</head>
+<body>
+<h1>Pregúntale a mi pantalla</h1>
+
+<label for="apiKey">API key de Gemini
+  <small>Se guarda solo en este Safari (storage local de la extensión). Créala gratis en aistudio.google.com/apikey. En la capa gratuita Google puede usar lo que envíes para mejorar sus productos.</small>
+</label>
+<input id="apiKey" type="password" placeholder="AIza..." autocomplete="off">
+
+<label for="model">Modelo
+  <small>ID del modelo de Gemini. Si la API responde "not found", cámbialo por uno vigente (por ejemplo gemini-3.5-flash-lite).</small>
+</label>
+<input id="model" type="text">
+
+<label for="blocked">Sitios bloqueados (uno por línea)
+  <small>En estos dominios la extensión NO captura ni envía nada. Recomendado: tu banca en línea, correo corporativo, intranet, etc.</small>
+</label>
+<textarea id="blocked" placeholder="ejemplo-banco.com&#10;intranet.miempresa.com"></textarea>
+
+<button id="save">Guardar</button><span id="status"></span>
+
+<script src="options.js"></script>
+</body>
+</html>
