@@ -146,8 +146,18 @@
         --field: rgba(120, 120, 128, 0.24); --bot: rgba(120, 120, 128, 0.26); --err-bg: rgba(255, 69, 58, 0.22); --err-fg: #ff9a92;
         box-shadow: 0 28px 70px rgba(0,0,0,.6), 0 3px 10px rgba(0,0,0,.4), inset 0 0.5px 0 rgba(255,255,255,.12); }
     }
+    @keyframes fade-in  { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fade-out { to { opacity: 0; } }
     @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+      /* Sin movimiento: nada se desplaza, escala ni gira. Solo fundidos suaves y cambios de color. */
+      *, *::before, *::after { animation: none !important; transition-property: background-color, color, border-color, box-shadow, opacity !important; transition-duration: .15s !important; transition-timing-function: ease !important; }
+      .panel { animation: fade-in .15s ease both !important; }
+      .panel.closing { animation: fade-out .15s ease both !important; }
+      .msg, .empty { animation: fade-in .2s ease both !important; }
+      .msgs { scroll-behavior: auto; }
+      .orb, .orb svg, .send, .send svg, .chip, button, button svg, #reset.spin svg { transform: none !important; }
+      .typing i { opacity: .7; }
+      .typing i:nth-child(1) { opacity: .4; } .typing i:nth-child(3) { opacity: 1; }
     }
   `;
 
@@ -330,7 +340,8 @@
   function hide() {
     if (!host || !isOpen()) return;
     panel.classList.add("closing");
-    closeTimer = setTimeout(() => { host.style.display = "none"; panel.classList.remove("closing"); }, 220);
+    const calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    closeTimer = setTimeout(() => { host.style.display = "none"; panel.classList.remove("closing"); }, calm ? 150 : 220);
   }
   function toggle() { isOpen() ? hide() : show(); }
 

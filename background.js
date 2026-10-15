@@ -58,9 +58,14 @@ async function handleAsk(msg, sender) {
 
   const { question, history = [], page, screenshot } = msg;
 
+  // Escapa < > & y comillas para que el contenido de la web no pueda cerrar
+  // las etiquetas <pagina>/<seleccion> ni inyectar otras.
+  const esc = (s) =>
+    String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
   const pageBlock =
-    `<pagina url="${page.url}" titulo="${page.title}">\n${page.text}\n</pagina>` +
-    (page.selection ? `\n<seleccion>\n${page.selection}\n</seleccion>` : "");
+    `<pagina url="${esc(page.url)}" titulo="${esc(page.title)}">\n${esc(page.text)}\n</pagina>` +
+    (page.selection ? `\n<seleccion>\n${esc(page.selection)}\n</seleccion>` : "");
 
   const parts = [];
   if (screenshot) {
