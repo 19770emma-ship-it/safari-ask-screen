@@ -169,6 +169,10 @@
       .msg, .empty { animation: fade-in .2s ease both !important; }
       .msgs { scroll-behavior: auto; }
       .orb, .orb svg, .send, .send svg, .chip, button, button svg, #reset.spin svg { transform: none !important; }
+      /* La flecha de #min no es decorativa: su rotacion indica expandido/colapsado,
+         asi que se excluye de la regla anterior y se fuerza aqui con mayor especificidad. */
+      #min svg { transform: rotate(0deg) !important; }
+      .panel.minimized #min svg { transform: rotate(180deg) !important; }
       .typing i { opacity: .7; }
       .typing i:nth-child(1) { opacity: .4; } .typing i:nth-child(3) { opacity: 1; }
     }
