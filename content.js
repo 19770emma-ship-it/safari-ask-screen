@@ -255,6 +255,19 @@
   }
 
   function setMinimized(on) {
+    // Si el panel se arrastro alguna vez, su posicion quedo fijada con
+    // top/left en vez de bottom/right (ver enableDrag). Si no corregimos esto,
+    // al minimizar se encoge desde abajo hacia arriba y el header queda
+    // flotando donde antes estaba la parte superior del panel grande.
+    // Fijamos su esquina actual con bottom/right justo antes de cambiar de
+    // tamano, para que el colapso/expansion siempre ocurra desde esa esquina,
+    // sin importar si el panel fue arrastrado antes.
+    const r = panel.getBoundingClientRect();
+    panel.style.left = "auto";
+    panel.style.top = "auto";
+    panel.style.right = (window.innerWidth - r.right) + "px";
+    panel.style.bottom = (window.innerHeight - r.bottom) + "px";
+
     panel.classList.toggle("minimized", on);
     $("min").title = on ? "Restaurar" : "Minimizar";
     $("min").setAttribute("aria-label", on ? "Restaurar" : "Minimizar");
